@@ -1002,6 +1002,7 @@ export default function App() {
                           <th>RECIPIENT</th>
                           <th>SUBJECT</th>
                           <th>DELIVERY STATUS</th>
+                          <th>DELIVERY DETAILS</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1019,6 +1020,9 @@ export default function App() {
                               <span className={`email-badge ${ea.status.toLowerCase()}`}>
                                 {ea.status}
                               </span>
+                            </td>
+                            <td style={{ fontSize: "10px", color: ea.status === "FAILED" ? "#fca5a5" : "#94a3b8", maxWidth: "340px", whiteSpace: "normal", lineHeight: 1.4 }}>
+                              {ea.details}
                             </td>
                           </tr>
                         ))}
