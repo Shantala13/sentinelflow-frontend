@@ -31,3 +31,18 @@
 .stat-pill { background: #0c1725; border: 1px solid #203448; border-radius: 8px; padding: 10px 12px; text-align: center; }
 .stat-pill span { display: block; font-size: 10px; color: #8c9bb1; }
 .stat-pill strong { display: block; font-size: 18px; color: #fff; margin-top: 4px; font-family: 'Space Grotesk', sans-serif; }
+
+/* --- EMAIL ALERT NOTIFICATION STYLES --- */
+.email-alert-box { background: #0c1c2e; border: 1px solid #1c3c5e; border-radius: 8px; padding: 12px 14px; margin-top: 12px; font-size: 11px; color: #a5d8ff; display: flex; align-items: flex-start; gap: 10px; }
+.email-alert-box strong { color: #fff; display: block; margin-bottom: 2px; }
+.email-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 4px; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.email-badge.sent { background: #133b30; color: #5eead4; border: 1px solid #1f6352; }
+.email-badge.simulated { background: #182c44; color: #7dd3fc; border: 1px solid #284c74; }
+.email-badge.failed { background: #401824; color: #fca5a5; border: 1px solid #6b2438; }
+.config-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.config-row input { background: #0c1725; border: 1px solid #24384a; border-radius: 6px; color: #fff; padding: 8px 12px; font-size: 12px; flex: 1; min-width: 220px; }
+.btn-sm { padding: 8px 14px; font-size: 11px; border-radius: 6px; font-weight: 600; cursor: pointer; border: 1px solid #2e9f9b; background: #133a4a; color: #79f3e8; transition: all .15s; }
+.btn-sm:hover:not(:disabled) { background: #1a4f65; }
+.btn-sm:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-test { border-color: #f5bb59; background: #332714; color: #fcd34d; }
+.btn-test:hover:not(:disabled) { background: #483719; }

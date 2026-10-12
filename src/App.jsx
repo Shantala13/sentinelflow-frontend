@@ -87,12 +87,19 @@ export default function App() {
   const [activePage, setActivePage] = useState("Overview");
   const [readings, setReadings] = useState([]);
   const [alerts, setAlerts] = useState([]);
+  const [emailAlerts, setEmailAlerts] = useState([]);
   const [health, setHealth] = useState("checking");
   const [lastUpdated, setLastUpdated] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+
+  // Email Configuration State
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [emailConfigStatus, setEmailConfigStatus] = useState("");
+  const [emailTesting, setEmailTesting] = useState(false);
+  const [emailTestMsg, setEmailTestMsg] = useState("");
 
   // Manual Ingestion Form State
   const [manualForm, setManualForm] = useState({
@@ -114,6 +121,25 @@ export default function App() {
   const [uploadResult, setUploadResult] = useState(null);
   const [uploadError, setUploadError] = useState("");
   const fileInputRef = useRef(null);
+
+  const fetchEmailData = useCallback(async () => {
+    try {
+      const [cfgRes, alertsRes] = await Promise.allSettled([
+        fetch(`${API_BASE}/api/v1/scada/email-config`),
+        fetch(`${API_BASE}/api/v1/scada/email-alerts`)
+      ]);
+      if (cfgRes.status === "fulfilled" && cfgRes.value.ok) {
+        const cfg = await cfgRes.value.json();
+        if (cfg.recipient) setRecipientEmail(cfg.recipient);
+      }
+      if (alertsRes.status === "fulfilled" && alertsRes.value.ok) {
+        const log = await alertsRes.value.json();
+        setEmailAlerts(log.alerts || []);
+      }
+    } catch {
+      // Non-critical, ignore
+    }
+  }, []);
 
   const refresh = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
@@ -147,6 +173,8 @@ export default function App() {
         setAlerts(rows.map(toReading).sort((a, b) => Number(b.id) - Number(a.id)));
       }
 
+      await fetchEmailData();
+
       const failures = [];
       if (!healthOk) failures.push("health check");
       if (readingsResult.status === "rejected" || (readingsResult.status === "fulfilled" && !readingsResult.value.ok)) failures.push("readings");
@@ -167,7 +195,7 @@ export default function App() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [fetchEmailData]);
 
   useEffect(() => {
     refresh();
@@ -181,7 +209,6 @@ export default function App() {
     setManualError("");
     setManualResult(null);
 
-    // Client-side numeric validation
     for (const sensor of sensorConfig) {
       const val = manualForm[sensor.key];
       if (val === "" || val === null || isNaN(Number(val))) {
@@ -215,7 +242,6 @@ export default function App() {
     }
   };
 
-  // Preset Handlers for Demonstration
   const loadPreset = (type) => {
     setManualResult(null);
     setManualError("");
@@ -271,6 +297,55 @@ export default function App() {
       setUploadError("Network error occurred during file upload. Backend might be unreachable.");
     } finally {
       setUploadLoading(false);
+    }
+  };
+
+  // Save Recipient Email
+  const handleSaveEmailConfig = async (e) => {
+    e.preventDefault();
+    setEmailConfigStatus("Saving...");
+    const formData = new FormData();
+    formData.append("recipient", recipientEmail);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/scada/email-config`, {
+        method: "POST",
+        body: formData
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setEmailConfigStatus(`✓ ${data.message}`);
+        setTimeout(() => setEmailConfigStatus(""), 4000);
+      } else {
+        setEmailConfigStatus(`Error: ${data.detail || "Could not update email"}`);
+      }
+    } catch {
+      setEmailConfigStatus("Connection failed.");
+    }
+  };
+
+  // Trigger Test Email
+  const handleSendTestEmail = async () => {
+    setEmailTesting(true);
+    setEmailTestMsg("Dispatched test notification...");
+    const formData = new FormData();
+    if (recipientEmail) formData.append("recipient", recipientEmail);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/scada/email-alerts/test`, {
+        method: "POST",
+        body: formData
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const st = data.result?.status;
+        setEmailTestMsg(`✓ Alert test created (${st}): Sent to ${data.result?.recipient}`);
+        refresh();
+      } else {
+        setEmailTestMsg(`Test dispatch failed: ${data.detail || "Server error"}`);
+      }
+    } catch {
+      setEmailTestMsg("Error connecting to test email endpoint.");
+    } finally {
+      setEmailTesting(false);
     }
   };
 
@@ -380,7 +455,7 @@ export default function App() {
                 <span className="eyebrow-line" /> WATER TREATMENT · SCADA OPERATIONS
               </div>
               <h1>{activePage === "Overview" ? "System overview" : activePage}</h1>
-              <p className="subtitle">Monitor telemetry, ingest readings, and evaluate SCADA anomalies.</p>
+              <p className="subtitle">Monitor telemetry, ingest readings, and evaluate SCADA anomalies with instant operator alerts.</p>
             </div>
             <div className="updated-label">
               <span className="live-dot" /> AUTO-REFRESH · 15 SEC
@@ -537,7 +612,7 @@ export default function App() {
                     <div>
                       <span className="section-kicker">METHOD 1</span>
                       <h2>Manual sensor entry</h2>
-                      <p className="panel-description">Directly inject single telemetry readings into the SCADA pipeline.</p>
+                      <p className="panel-description">Inject single telemetry readings with real-time email dispatch.</p>
                     </div>
                     <span className="panel-tag">LIVE INGESTION</span>
                   </div>
@@ -620,6 +695,23 @@ export default function App() {
                           ))}
                         </ul>
                       )}
+                      
+                      {manualResult.email_alert && (
+                        <div className="email-alert-box">
+                          <span>📧</span>
+                          <div>
+                            <strong>
+                              Email Alert Triggered:{" "}
+                              <span className={`email-badge ${manualResult.email_alert.status.toLowerCase()}`}>
+                                {manualResult.email_alert.status}
+                              </span>
+                            </strong>
+                            <p style={{ margin: "2px 0 0" }}>Recipient: {manualResult.email_alert.recipient}</p>
+                            <small style={{ color: "#79a4cc" }}>{manualResult.email_alert.details}</small>
+                          </div>
+                        </div>
+                      )}
+
                       <small style={{ color: "#8c9bb1", marginTop: "4px" }}>
                         Timestamp: {prettyTime(manualResult.timestamp)}
                       </small>
@@ -633,7 +725,7 @@ export default function App() {
                     <div>
                       <span className="section-kicker">METHOD 2</span>
                       <h2>Batch file upload</h2>
-                      <p className="panel-description">Upload SCADA logs (.csv or .xlsx) for high-throughput anomaly analysis.</p>
+                      <p className="panel-description">Upload SCADA logs (.csv or .xlsx) with automatic anomaly digest alert.</p>
                     </div>
                     <span className="panel-tag">CSV / XLSX</span>
                   </div>
@@ -708,6 +800,22 @@ export default function App() {
                           <strong style={{ color: "var(--red)" }}>{uploadResult.critical_count}</strong>
                         </div>
                       </div>
+
+                      {uploadResult.email_alert && (
+                        <div className="email-alert-box">
+                          <span>📧</span>
+                          <div>
+                            <strong>
+                              Batch Digest Alert:{" "}
+                              <span className={`email-badge ${uploadResult.email_alert.status.toLowerCase()}`}>
+                                {uploadResult.email_alert.status}
+                              </span>
+                            </strong>
+                            <p style={{ margin: "2px 0 0" }}>Dispatched to: {uploadResult.email_alert.recipient}</p>
+                            <small style={{ color: "#79a4cc" }}>{uploadResult.email_alert.details}</small>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </article>
@@ -821,41 +929,140 @@ export default function App() {
             </section>
           )}
 
-          {/* PAGE 5: ALERTS & HISTORY */}
+          {/* PAGE 5: ALERTS & HISTORY (WITH EMAIL ALERT CONSOLE) */}
           {activePage === "Alerts & History" && (
-            <section className="panel full-panel">
-              <div className="panel-heading">
-                <div>
-                  <span className="section-kicker">INCIDENT LOG</span>
-                  <h2>Alerts & history</h2>
-                  <p className="panel-description">Historical anomaly events logged in the database.</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+              {/* OPERATOR EMAIL ALERT CONFIGURATION & TEST CONSOLE */}
+              <article className="panel">
+                <div className="panel-heading">
+                  <div>
+                    <span className="section-kicker">IMMEDIATE NOTIFICATIONS</span>
+                    <h2>Operator email alert console</h2>
+                    <p className="panel-description">Configure the safety operator recipient address and dispatch test telemetry alerts.</p>
+                  </div>
+                  <span className="panel-tag">SMTP ALERTS</span>
                 </div>
-                <span className="panel-tag">{alerts.length} ALERTS</span>
-              </div>
-              {alerts.length ? (
-                <div className="history-list">
-                  {alerts.map((event, i) => (
-                    <div className="history-row" key={`${event.id}-${i}`}>
-                      <div className={`history-marker ${statusClass(event.status)}`} />
-                      <div className="history-body">
-                        <div className="history-title">
-                          {event.anomaly_message || "Abnormal SCADA reading detected"}
-                        </div>
-                        <div className="history-meta">
-                          Reading #{event.id} · {prettyTime(event.timestamp)}
-                        </div>
-                      </div>
-                      <span className={`badge ${statusClass(event.status)}`}>{event.status}</span>
+
+                <form onSubmit={handleSaveEmailConfig}>
+                  <div className="config-row">
+                    <input
+                      type="email"
+                      required
+                      placeholder="operator@waterplant.org"
+                      value={recipientEmail}
+                      onChange={(e) => setRecipientEmail(e.target.value)}
+                    />
+                    <button type="submit" className="btn-sm">
+                      💾 Save Recipient Email
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-sm btn-test"
+                      onClick={handleSendTestEmail}
+                      disabled={emailTesting}
+                    >
+                      {emailTesting ? "Dispatching..." : "⚡ Send Test Alert Email"}
+                    </button>
+                  </div>
+                  {emailConfigStatus && (
+                    <small style={{ color: "#5eead4", display: "block", marginTop: "6px" }}>
+                      {emailConfigStatus}
+                    </small>
+                  )}
+                  {emailTestMsg && (
+                    <small style={{ color: "#fcd34d", display: "block", marginTop: "6px" }}>
+                      {emailTestMsg}
+                    </small>
+                  )}
+                </form>
+
+                <div className="info-footnote" style={{ marginTop: "14px" }}>
+                  <span>ⓘ</span>
+                  <p>
+                    <strong>Email Delivery Mode:</strong> Alerts are instantly formatted with telemetry metrics, violation types, and immediate mitigation actions. If SMTP credentials (<code>SMTP_USER</code> and <code>SMTP_PASSWORD</code>) are configured on Render, live emails are sent directly to your inbox. In demonstration mode, alerts are automatically recorded in the audit log below without requiring external credentials.
+                  </p>
+                </div>
+              </article>
+
+              {/* RECENT EMAIL ALERTS AUDIT LOG */}
+              {emailAlerts.length > 0 && (
+                <section className="panel table-panel">
+                  <div className="panel-heading">
+                    <div>
+                      <span className="section-kicker">NOTIFICATION AUDIT LOG</span>
+                      <h2>Recent email alert dispatches ({emailAlerts.length})</h2>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <EmptyState
-                  title="Your incident log is clear"
-                  text={loading ? "Loading alert history…" : "No alert records are currently available."}
-                />
+                  </div>
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>TIMESTAMP</th>
+                          <th>SEVERITY</th>
+                          <th>RECIPIENT</th>
+                          <th>SUBJECT</th>
+                          <th>DELIVERY STATUS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {emailAlerts.slice(0, 10).map((ea, i) => (
+                          <tr key={`${ea.id}-${i}`}>
+                            <td>{prettyTime(ea.timestamp)}</td>
+                            <td>
+                              <span className={`badge ${statusClass(ea.severity)}`}>
+                                {ea.severity}
+                              </span>
+                            </td>
+                            <td>{ea.recipient}</td>
+                            <td style={{ color: "#e2e8f0" }}>{ea.subject}</td>
+                            <td>
+                              <span className={`email-badge ${ea.status.toLowerCase()}`}>
+                                {ea.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
               )}
-            </section>
+
+              {/* SCADA ANOMALY INCIDENT LOG */}
+              <section className="panel full-panel">
+                <div className="panel-heading">
+                  <div>
+                    <span className="section-kicker">INCIDENT LOG</span>
+                    <h2>SCADA alerts & fault history</h2>
+                    <p className="panel-description">Historical anomaly events logged in the database.</p>
+                  </div>
+                  <span className="panel-tag">{alerts.length} ALERTS</span>
+                </div>
+                {alerts.length ? (
+                  <div className="history-list">
+                    {alerts.map((event, i) => (
+                      <div className="history-row" key={`${event.id}-${i}`}>
+                        <div className={`history-marker ${statusClass(event.status)}`} />
+                        <div className="history-body">
+                          <div className="history-title">
+                            {event.anomaly_message || "Abnormal SCADA reading detected"}
+                          </div>
+                          <div className="history-meta">
+                            Reading #{event.id} · {prettyTime(event.timestamp)}
+                          </div>
+                        </div>
+                        <span className={`badge ${statusClass(event.status)}`}>{event.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="Your incident log is clear"
+                    text={loading ? "Loading alert history…" : "No alert records are currently available."}
+                  />
+                )}
+              </section>
+            </div>
           )}
 
           <footer className="footer">
